@@ -13,47 +13,53 @@ Features
 - Optional response validation hook
 - Pluggable transport (httpx by default)
 
+Install
+pip install batchcal
+(or clone then: pip install .)
+
 Env Vars
 - OPENAI_API_KEY
 
 Usage
 
-Note: you must `pip install httpx` and have valid API keys.
+Note: you must `pip install httpx` (installed automatically if using pyproject) and have valid API keys.
 
 Example:
-``` 
-from batchai import BatchAI, OpenAIProvider, Request
+```python
+from batchcal import BatchClient, OpenAIProvider, Msg
 
 async def main():
-    client = BatchAI(OpenAIProvider(), qps=2.0, concurrency=5)
-    res = await client.generate(Request(model="gpt-4.1-mini", input="Ping", max_tokens=8))
-    print(res.output_text)
-
+    client = BatchClient(OpenAIProvider(), qps=2.0, max_concurrency=5)
+    resp = await client.acomplete([Msg.user("Ping")], model="gpt-4.1-mini")
+    print(resp.content)
 ```
 
 With Validation:
+```python
+from batchcal import BatchClient, OpenAIProvider, Msg, require_json
+
+client = BatchClient(OpenAIProvider(), validate=require_json)
+
+# or custom:
+def validate_nonempty(r):
+    if not r.content.strip():
+        raise ValueError("Empty output")
 ```
-from batchai import BatchAI, Request, ValidationError, BatchAIError
 
-async def validate_nonempty(res):
-    if not res.output_text.strip():
-        raise ValidationError("Empty output")
+Batch:
+```python
+prompts = [[Msg.user(f"Item {i}")] for i in range(20)]
+resps = await client.abatch(prompts, model="gpt-4.1-mini")
+for r in resps:
+    print(r.content)
+```
 
-reqs = [Request(model="gpt-4.1-mini", input=f"Item {i}") for i in range(20)]
-try:
-    out = await client.batch(reqs, validate=validate_nonempty, return_exceptions=True)
-    for r in out:
-        if isinstance(r, Exception):
-            # log and continue
-            ...
-        else:
-            ...
-except BatchAIError as e:
-    # fatal path
-    ...
-
-
-## Testing
-Install dev deps: `pip install pytest`
-Run: `pytest -q`
+Testing
+Install dev deps: pip install .[dev]
+Run: pytest -q
 Tests mock the OpenAI API (no network, no real key needed).
+
+Publishing
+1. Update version in pyproject.toml
+2. python -m build
+3. twine upload dist/*
