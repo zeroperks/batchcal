@@ -9,7 +9,7 @@ from llm_request import LLMRequest
 from llm_response import LLMResponse
 from msg import Msg
 from backoff import _compute_backoff
-from token_bucket import _TokenBucket
+from token_bucket import RateLimiter, TokenBucketLimiter
 
 
 class BatchClient:
@@ -19,13 +19,15 @@ class BatchClient:
         *,
         max_concurrency: int = 8,
         qps: Optional[float] = None,
+        limiter: RateLimiter | None = None,
         max_retries: int = 3,
         timeout: float = 60.0,
         validate: Optional[Callable[[LLMResponse], None]] = None,
     ):
         self.provider = provider
         self.sema = asyncio.Semaphore(max(1, int(max_concurrency)))
-        self.bucket = _TokenBucket(qps) if qps else None
+        # Prefer explicit limiter if supplied; else build from qps; else None
+        self.rate_limiter: RateLimiter | None = limiter or (TokenBucketLimiter(qps) if qps else None)
         self.max_retries = max_retries
         self.timeout = timeout
         self.validate = validate
@@ -35,8 +37,8 @@ class BatchClient:
         while True:
             try:
                 async with self.sema:
-                    if self.bucket:
-                        await self.bucket.acquire()
+                    if self.rate_limiter:
+                        await self.rate_limiter.acquire()
                     resp = await self.provider.acomplete(req, timeout=self.timeout)
                 if self.validate:
                     try:
@@ -175,13 +177,15 @@ class BatchClient:
         *,
         max_concurrency: int = 8,
         qps: Optional[float] = None,
+        limiter: RateLimiter | None = None,
         max_retries: int = 3,
         timeout: float = 60.0,
         validate: Optional[Callable[[LLMResponse], None]] = None,
     ):
         self.provider = provider
         self.sema = asyncio.Semaphore(max(1, int(max_concurrency)))
-        self.bucket = _TokenBucket(qps) if qps else None
+        # Prefer explicit limiter if supplied; else build from qps; else None
+        self.rate_limiter: RateLimiter | None = limiter or (TokenBucketLimiter(qps) if qps else None)
         self.max_retries = max_retries
         self.timeout = timeout
         self.validate = validate
@@ -191,8 +195,8 @@ class BatchClient:
         while True:
             try:
                 async with self.sema:
-                    if self.bucket:
-                        await self.bucket.acquire()
+                    if self.rate_limiter:
+                        await self.rate_limiter.acquire()
                     resp = await self.provider.acomplete(req, timeout=self.timeout)
                 if self.validate:
                     try:
